@@ -1,0 +1,36 @@
+{
+  "name": "page-duplicator",
+  "version": "1.2.3",
+  "description": "WordPress plugin for page duplication with ACF fields and Yoast SEO metadata updates",
+  "main": "build.js",
+  "scripts": {
+    "build": "node build.js",
+    "dev": "npm run build -- --dev",
+    "lint": "eslint assets/js/*.js",
+    "lint:fix": "eslint assets/js/*.js --fix",
+    "test": "echo \"No tests configured\" && exit 0"
+  },
+  "author": "Braudy",
+  "license": "GPL-2.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/page-duplicator.git"
+  },
+  "keywords": [
+    "wordpress-plugin",
+    "acf",
+    "yoast-seo",
+    "elementor",
+    "page-duplication"
+  ],
+  "devDependencies": {
+    "archiver": "^5.3.1",
+    "eslint": "^8.40.0",
+    "terser": "^5.16.8",
+    "clean-css-cli": "^5.6.2"
+  },
+  "engines": {
+    "node": ">=14.0.0",
+    "npm": ">=6.0.0"
+  }
+} 

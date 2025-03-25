@@ -1,0 +1,35 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Dependencies
+node_modules/
+
+# Build files
+dist/
+
+# Editor files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# WordPress default files
+.htaccess
+wp-config.php
+wp-content/uploads/
+wp-content/upgrade/
+wp-content/backup-db/
+wp-content/cache/
+wp-content/backups/
+
+# Dotenv environment variable files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Compiled assets
+*.map 
