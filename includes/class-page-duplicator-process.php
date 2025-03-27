@@ -271,8 +271,9 @@ class PageDuplicatorProcess {
             // Copy taxonomies (categories, tags, etc.)
             $this->duplicate_taxonomies($template_post->ID, $new_post_id);
             
-            // Update ACF fields
-            $this->update_acf_fields($template_post->ID, $new_post_id, $location);
+            // Update ACF fields and all post meta
+            $is_update = isset($existing_page) && $data['slug_handling'] === 'update';
+            $this->update_acf_fields($template_post->ID, $new_post_id, $location, $data['search_key'], $is_update);
             
             // Update Yoast SEO metadata
             $this->update_yoast_metadata($template_post->ID, $new_post_id, $data['search_key'], $location);
@@ -374,27 +375,162 @@ class PageDuplicatorProcess {
     }
 
     /**
-     * Update ACF fields for the duplicated page
+     * Update ACF fields and all post meta for the duplicated page
      *
      * @param int $template_id Original page ID
      * @param int $new_post_id New page ID
      * @param string $location New location value
+     * @param string $search_key Text to search for
+     * @param bool $is_update Whether this is an update operation
      */
-    private function update_acf_fields($template_id, $new_post_id, $location) {
-        // Get all ACF fields from the template
-        $fields = get_fields($template_id);
-        
-        if (!$fields) {
-            return;
+    private function update_acf_fields($template_id, $new_post_id, $location, $search_key, $is_update = false) {
+        // Handle meta differently based on whether we're updating or creating
+        if ($is_update) {
+            // For updates, only delete meta that we're going to copy
+            $template_meta = get_post_meta($template_id);
+            foreach ($template_meta as $meta_key => $meta_values) {
+                if (!in_array($meta_key, ['_edit_lock', '_edit_last', '_wp_old_slug', '_wp_trash_meta_time', '_wp_trash_meta_status'])) {
+                    delete_post_meta($new_post_id, $meta_key);
+                }
+            }
+        } else {
+            // For new pages, delete all existing meta except Elementor data
+            $existing_meta = get_post_meta($new_post_id);
+            foreach ($existing_meta as $meta_key => $meta_values) {
+                delete_post_meta($new_post_id, $meta_key);
+            }
         }
+
+        // Special handling for Elementor data
+        $elementor_data = get_post_meta($template_id, '_elementor_data', true);
+        if ($elementor_data) {
+            // If it's JSON string, decode it first
+            if (is_string($elementor_data)) {
+                $elementor_data = json_decode($elementor_data, true);
+            }
+            
+            // Replace location in the Elementor data
+            $updated_elementor_data = $this->replace_location_recursive($elementor_data, $search_key, $location);
+            
+            // Update Elementor data
+            update_post_meta($new_post_id, '_elementor_data', wp_slash(json_encode($updated_elementor_data)));
+            
+            // Copy other Elementor meta
+            $elementor_meta_keys = [
+                '_elementor_edit_mode',
+                '_elementor_template_type',
+                '_elementor_version',
+                '_elementor_pro_version',
+                '_elementor_css'
+            ];
+            
+            foreach ($elementor_meta_keys as $elementor_key) {
+                $elementor_value = get_post_meta($template_id, $elementor_key, true);
+                if ($elementor_value) {
+                    update_post_meta($new_post_id, $elementor_key, $elementor_value);
+                }
+            }
+        }
+
+        // Get ALL post meta from template
+        $all_post_meta = get_post_meta($template_id);
         
-        foreach ($fields as $key => $value) {
-            // If field name is 'location', update with new value
-            if ($key === 'location') {
-                update_field($key, $location, $new_post_id);
-            } else {
-                // Copy other fields as is
-                update_field($key, $value, $new_post_id);
+        // List of meta keys to skip
+        $skip_keys = array_merge([
+            '_edit_lock',
+            '_edit_last',
+            '_wp_old_slug',
+            '_wp_trash_meta_time',
+            '_wp_trash_meta_status',
+            '_elementor_data',
+            '_elementor_edit_mode',
+            '_elementor_template_type',
+            '_elementor_version',
+            '_elementor_pro_version',
+            '_elementor_css'
+        ]);
+
+        foreach ($all_post_meta as $meta_key => $meta_values) {
+            // Skip internal WordPress meta and Elementor meta
+            if (in_array($meta_key, $skip_keys)) {
+                continue;
+            }
+
+            // Get raw meta values
+            $raw_values = get_post_meta($template_id, $meta_key, false);
+
+            foreach ($raw_values as $raw_value) {
+                $new_value = $raw_value;
+
+                // Process strings and arrays
+                if (is_string($raw_value)) {
+                    $new_value = $this->replace_location($raw_value, $search_key, $location);
+                } elseif (is_array($raw_value)) {
+                    $new_value = $this->replace_location_recursive($raw_value, $search_key, $location);
+                }
+
+                // Special handling for location field
+                if ($meta_key === 'location') {
+                    $new_value = $location;
+                }
+
+                // Add the meta value
+                add_post_meta($new_post_id, $meta_key, $new_value);
+            }
+        }
+
+        // Handle ACF fields if they exist
+        if (function_exists('get_fields')) {
+            $acf_fields = get_fields($template_id);
+            if ($acf_fields) {
+                foreach ($acf_fields as $key => $value) {
+                    if ($key === 'location') {
+                        update_field($key, $location, $new_post_id);
+                    } else {
+                        $updated_value = $this->replace_location_recursive($value, $search_key, $location);
+                        update_field($key, $updated_value, $new_post_id);
+                    }
+                }
+            }
+        }
+
+        // Copy Yoast SEO meta if it exists
+        $this->copy_yoast_seo_meta($template_id, $new_post_id, $search_key, $location);
+    }
+
+    /**
+     * Copy Yoast SEO meta data
+     *
+     * @param int $template_id Original page ID
+     * @param int $new_post_id New page ID
+     * @param string $search_key Text to search for
+     * @param string $location New location value
+     */
+    private function copy_yoast_seo_meta($template_id, $new_post_id, $search_key, $location) {
+        $yoast_meta_keys = array(
+            '_yoast_wpseo_title',
+            '_yoast_wpseo_metadesc',
+            '_yoast_wpseo_focuskw',
+            '_yoast_wpseo_meta-robots-noindex',
+            '_yoast_wpseo_meta-robots-nofollow',
+            '_yoast_wpseo_meta-robots-adv',
+            '_yoast_wpseo_canonical',
+            '_yoast_wpseo_bctitle',
+            '_yoast_wpseo_opengraph-title',
+            '_yoast_wpseo_opengraph-description',
+            '_yoast_wpseo_opengraph-image',
+            '_yoast_wpseo_twitter-title',
+            '_yoast_wpseo_twitter-description',
+            '_yoast_wpseo_twitter-image'
+        );
+
+        foreach ($yoast_meta_keys as $meta_key) {
+            $meta_value = get_post_meta($template_id, $meta_key, true);
+            if ($meta_value) {
+                if (is_string($meta_value)) {
+                    $meta_value = $this->replace_location($meta_value, $search_key, $location);
+                }
+                update_post_meta($new_post_id, $meta_key, $meta_value);
             }
         }
     }
@@ -427,27 +563,62 @@ class PageDuplicatorProcess {
     }
 
     /**
+     * Recursively replace location in array/object values
+     *
+     * @param mixed $data Data to process
+     * @param string $search_key Text to search for
+     * @param string $location New location value
+     * @return mixed Updated data
+     */
+    private function replace_location_recursive($data, $search_key, $location) {
+        if (is_string($data)) {
+            return $this->replace_location($data, $search_key, $location);
+        }
+        
+        if (is_array($data)) {
+            foreach ($data as $key => $value) {
+                $data[$key] = $this->replace_location_recursive($value, $search_key, $location);
+            }
+        }
+        
+        if (is_object($data)) {
+            foreach (get_object_vars($data) as $key => $value) {
+                $data->$key = $this->replace_location_recursive($value, $search_key, $location);
+            }
+        }
+        
+        return $data;
+    }
+
+    /**
      * Replace location in text while preserving case
      *
      * @param string $text Original text
-     * @param string $search Search text
-     * @param string $replace Replacement text
+     * @param string $search_key Text to search for
+     * @param string $location New location value
      * @return string Updated text
      */
-    private function replace_location($text, $search, $replace) {
-        // Case-sensitive replacements
-        $patterns = array(
-            // All uppercase
-            '/\b' . preg_quote(strtoupper($search), '/') . '\b/' => strtoupper($replace),
-            // All lowercase
-            '/\b' . preg_quote(strtolower($search), '/') . '\b/' => strtolower($replace),
-            // First letter uppercase
-            '/\b' . preg_quote(ucfirst(strtolower($search)), '/') . '\b/' => ucfirst(strtolower($replace)),
-            // Original case (fallback)
-            '/\b' . preg_quote($search, '/') . '\b/' => $replace
+    private function replace_location($text, $search_key, $location) {
+        if (!is_string($text) || empty($text)) {
+            return $text;
+        }
+
+        // Case variations to replace
+        $search_variations = array(
+            $search_key, // Original
+            ucfirst($search_key), // First letter capital
+            strtoupper($search_key), // All caps
+            strtolower($search_key) // All lowercase
         );
 
-        return preg_replace(array_keys($patterns), array_values($patterns), $text);
+        $replace_variations = array(
+            $location, // Original
+            ucfirst($location), // First letter capital
+            strtoupper($location), // All caps
+            strtolower($location) // All lowercase
+        );
+
+        return str_replace($search_variations, $replace_variations, $text);
     }
 
     /**
@@ -613,5 +784,35 @@ class PageDuplicatorProcess {
                 wp_set_object_terms($new_post_id, $terms, $taxonomy);
             }
         }
+    }
+
+    /**
+     * Helper function to process Elementor data and replace locations
+     *
+     * @param array $elements Elementor elements array
+     * @param string $search_key Text to search for
+     * @param string $location New location value
+     * @return array Updated elements
+     */
+    private function process_elementor_elements($elements, $search_key, $location) {
+        foreach ($elements as &$element) {
+            // Process settings
+            if (!empty($element['settings'])) {
+                foreach ($element['settings'] as $setting_key => &$setting_value) {
+                    if (is_string($setting_value)) {
+                        $setting_value = $this->replace_location($setting_value, $search_key, $location);
+                    } elseif (is_array($setting_value)) {
+                        $setting_value = $this->replace_location_recursive($setting_value, $search_key, $location);
+                    }
+                }
+            }
+
+            // Process elements recursively
+            if (!empty($element['elements'])) {
+                $element['elements'] = $this->process_elementor_elements($element['elements'], $search_key, $location);
+            }
+        }
+
+        return $elements;
     }
 } 

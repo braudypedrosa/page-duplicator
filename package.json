@@ -1,6 +1,6 @@
 {
   "name": "page-duplicator",
-  "version": "1.2.3",
+  "version": "1.2.7",
   "description": "WordPress plugin for page duplication with ACF fields and Yoast SEO metadata updates",
   "main": "build.js",
   "scripts": {

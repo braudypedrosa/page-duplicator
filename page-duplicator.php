@@ -8,7 +8,7 @@ if (defined('WP_DEBUG') && WP_DEBUG) {
 /**
  * Plugin Name: Page Duplicator with ACF & Yoast
  * Description: Automates page duplication with ACF fields and Yoast SEO metadata updates
- * Version: 1.2.5
+ * Version: 1.2.7.2
  * Author: Braudy
  * Text Domain: page-duplicator
  * Requires at least: 5.0

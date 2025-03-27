@@ -79,6 +79,7 @@
                     <div class="result-item ${resultClass}">
                         <strong>${result.location}:</strong> ${result.message}
                         ${result.url ? `<br><a href="${result.url}" target="_blank">View Page</a>` : ''}
+                        ${!result.success ? `<br><span class="error-details">Error: ${result.message}</span>` : ''}
                     </div>
                 `;
                 this.resultsContent.append(html);
