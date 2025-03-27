@@ -62,4 +62,38 @@
     margin-top: 20px;
     padding-top: 15px;
     border-top: 1px solid #dcdcde;
+}
+
+/* Copyable formats styling */
+.copyable-formats {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #dcdcde;
+}
+
+.copyable-formats h4 {
+    margin-bottom: 10px;
+}
+
+.url-list-container,
+.areas-served-container {
+    margin-bottom: 20px;
+}
+
+.copyable-formats textarea {
+    width: 100%;
+    min-height: 100px;
+    margin-bottom: 10px;
+    font-family: monospace;
+    padding: 10px;
+}
+
+.copy-button {
+    margin-bottom: 20px !important;
+}
+
+.copy-button.copied {
+    background-color: #46b450 !important;
+    border-color: #46b450 !important;
+    color: #fff !important;
 } 

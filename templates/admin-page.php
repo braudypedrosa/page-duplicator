@@ -85,6 +85,20 @@
         <div id="duplication-results" class="hidden">
             <h3><?php _e('Duplication Results', 'page-duplicator'); ?></h3>
             <div class="results-content"></div>
+            
+            <div class="copyable-formats">
+                <h4><?php _e('URLs List', 'page-duplicator'); ?></h4>
+                <div class="url-list-container">
+                    <textarea id="url-list" readonly class="code"></textarea>
+                    <button type="button" class="button copy-button" data-target="url-list"><?php _e('Copy URLs', 'page-duplicator'); ?></button>
+                </div>
+                
+                <h4><?php _e('Areas Served HTML', 'page-duplicator'); ?></h4>
+                <div class="areas-served-container">
+                    <textarea id="areas-served-html" readonly class="code"></textarea>
+                    <button type="button" class="button copy-button" data-target="areas-served-html"><?php _e('Copy HTML', 'page-duplicator'); ?></button>
+                </div>
+            </div>
         </div>
     </div>
 </div> 

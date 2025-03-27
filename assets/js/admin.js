@@ -15,6 +15,9 @@
             this.resultsContent = $('.results-content');
             
             this.bindEvents();
+            
+            // Add new initialization for copy buttons
+            this.initializeCopyButtons();
         }
 
         bindEvents() {
@@ -81,6 +84,9 @@
                 this.resultsContent.append(html);
             });
 
+            // Generate copyable formats
+            this.generateCopyableFormats(response.data.results);
+
             this.resultsContainer.removeClass('hidden');
             this.toggleLoading(false);
         }
@@ -116,6 +122,61 @@
         toggleLoading(isLoading) {
             this.submitButton.prop('disabled', isLoading);
             this.spinner.toggleClass('is-active', isLoading);
+        }
+
+        generateCopyableFormats(results) {
+            // Filter only successful results
+            const successfulResults = results.filter(result => result.success && result.url);
+            
+            // Generate URL list
+            const urlList = successfulResults
+                .map(result => result.url)
+                .join('\n');
+            
+            // Generate Areas Served HTML
+            const areasServedLinks = successfulResults
+                .map(result => {
+                    // Get the location name from the post title or location field
+                    const locationName = result.location
+                        .split(' ')
+                        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                        .join(' ');
+                    return `<a href="${result.url}">${locationName}</a>`;
+                })
+                .join(' ');
+            
+            // Update textareas if they exist
+            const urlListElement = $('#url-list');
+            const areasServedElement = $('#areas-served-html');
+            
+            if (urlListElement.length) {
+                urlListElement.val(urlList);
+            }
+            
+            if (areasServedElement.length) {
+                const areasServedHtml = `<div class="areas-served-container"><h3>Areas Served</h3><div class="areas-served">${areasServedLinks}</div></div>`;
+                areasServedElement.val(areasServedHtml);
+            }
+        }
+
+        initializeCopyButtons() {
+            $(document).on('click', '.copy-button', (e) => {
+                const button = $(e.target);
+                const targetId = button.data('target');
+                const textarea = $(`#${targetId}`);
+                
+                if (textarea.length) {
+                    textarea.select();
+                    document.execCommand('copy');
+                    
+                    const originalText = button.text();
+                    button.addClass('copied').text('Copied!');
+                    
+                    setTimeout(() => {
+                        button.removeClass('copied').text(originalText);
+                    }, 2000);
+                }
+            }); 
         }
     }
 
