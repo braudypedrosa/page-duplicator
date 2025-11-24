@@ -259,8 +259,8 @@ class PageDuplicatorProcess {
                 $this->created_posts[] = $new_post_id;
             }
 
-            // Handle Elementor data
-            $this->duplicate_elementor_data($template_post->ID, $new_post_id, $data['search_key'], $location);
+            // Handle page builder content
+            $this->duplicate_builder_content($template_post->ID, $new_post_id, $data['search_key'], $location);
 
             // Copy featured image
             $this->duplicate_featured_image($template_post->ID, $new_post_id);
@@ -660,6 +660,209 @@ class PageDuplicatorProcess {
     }
 
     /**
+     * Detect which page builder was used for the post
+     *
+     * @param int $post_id The post ID to check
+     * @return string The detected builder name ('elementor', 'gutenberg', 'wpbakery', or 'classic')
+     */
+    private function detect_page_builder($post_id) {
+        // Check for Elementor
+        if (get_post_meta($post_id, '_elementor_edit_mode', true) === 'builder') {
+            return 'elementor';
+        }
+        
+        // Check for WPBakery
+        if (get_post_meta($post_id, '_wpb_vc_js_status', true) === 'true') {
+            return 'wpbakery';
+        }
+        
+        // Check for Gutenberg
+        if (has_blocks(get_post($post_id)->post_content)) {
+            return 'gutenberg';
+        }
+        
+        // Default to classic editor
+        return 'classic';
+    }
+
+    /**
+     * Duplicate page builder content based on the detected builder
+     *
+     * @param int $template_id Original post ID
+     * @param int $new_post_id New post ID
+     * @param string $search_key Text to search for
+     * @param string $location New location value
+     */
+    private function duplicate_builder_content($template_id, $new_post_id, $search_key, $location) {
+        $builder = $this->detect_page_builder($template_id);
+        
+        switch ($builder) {
+            case 'elementor':
+                $this->duplicate_elementor_data($template_id, $new_post_id, $search_key, $location);
+                break;
+            
+            case 'wpbakery':
+                $this->duplicate_wpbakery_data($template_id, $new_post_id, $search_key, $location);
+                break;
+            
+            case 'gutenberg':
+                $this->duplicate_gutenberg_data($template_id, $new_post_id, $search_key, $location);
+                break;
+            
+            default:
+                // For classic editor, just copy the content
+                $content = get_post_field('post_content', $template_id);
+                $updated_content = $this->replace_location($content, $search_key, $location);
+                wp_update_post(array(
+                    'ID' => $new_post_id,
+                    'post_content' => $updated_content
+                ));
+                break;
+        }
+    }
+
+    /**
+     * Duplicate WPBakery page builder data
+     *
+     * @param int $template_id Original post ID
+     * @param int $new_post_id New post ID
+     * @param string $search_key Text to search for
+     * @param string $location New location value
+     */
+    private function duplicate_wpbakery_data($template_id, $new_post_id, $search_key, $location) {
+        // Copy WPBakery meta
+        $wpbakery_meta_keys = array(
+            '_wpb_vc_js_status',
+            '_wpb_vc_js_interface_version',
+            '_wpb_vc_js_custom_css',
+            '_wpb_vc_js_shortcodes_custom_css'
+        );
+        
+        foreach ($wpbakery_meta_keys as $meta_key) {
+            $meta_value = get_post_meta($template_id, $meta_key, true);
+            if ($meta_value) {
+                if (is_string($meta_value)) {
+                    $meta_value = $this->replace_location($meta_value, $search_key, $location);
+                }
+                update_post_meta($new_post_id, $meta_key, $meta_value);
+            }
+        }
+        
+        // Copy and update content
+        $content = get_post_field('post_content', $template_id);
+        $updated_content = $this->replace_location($content, $search_key, $location);
+        wp_update_post(array(
+            'ID' => $new_post_id,
+            'post_content' => $updated_content
+        ));
+    }
+
+    /**
+     * Duplicate Gutenberg content
+     *
+     * @param int $template_id Original post ID
+     * @param int $new_post_id New post ID
+     * @param string $search_key Text to search for
+     * @param string $location New location value
+     */
+    private function duplicate_gutenberg_data($template_id, $new_post_id, $search_key, $location) {
+        // Get the content with blocks
+        $content = get_post_field('post_content', $template_id);
+        
+        // Parse blocks
+        $blocks = parse_blocks($content);
+        
+        // Process blocks recursively
+        $processed_blocks = $this->process_gutenberg_blocks($blocks, $search_key, $location);
+        
+        // Convert blocks back to content
+        $updated_content = serialize_blocks($processed_blocks);
+        
+        // Update the post content
+        wp_update_post(array(
+            'ID' => $new_post_id,
+            'post_content' => $updated_content
+        ));
+    }
+
+    /**
+     * Process Gutenberg blocks recursively
+     *
+     * @param array $blocks Array of blocks to process
+     * @param string $search_key Text to search for
+     * @param string $location New location value
+     * @return array Processed blocks
+     */
+    private function process_gutenberg_blocks($blocks, $search_key, $location) {
+        foreach ($blocks as &$block) {
+            // Process block attributes
+            if (!empty($block['attrs'])) {
+                foreach ($block['attrs'] as $key => &$value) {
+                    if (is_string($value)) {
+                        $value = $this->replace_location($value, $search_key, $location);
+                    } elseif (is_array($value)) {
+                        $value = $this->replace_location_recursive($value, $search_key, $location);
+                    }
+                }
+            }
+            
+            // Process inner blocks
+            if (!empty($block['innerBlocks'])) {
+                $block['innerBlocks'] = $this->process_gutenberg_blocks($block['innerBlocks'], $search_key, $location);
+            }
+            
+            // Process inner content
+            if (!empty($block['innerContent'])) {
+                foreach ($block['innerContent'] as &$content) {
+                    if (is_string($content)) {
+                        $content = $this->replace_location($content, $search_key, $location);
+                    }
+                }
+            }
+        }
+        
+        return $blocks;
+    }
+
+    /**
+     * Duplicate featured image from template to new post
+     *
+     * @param int $template_id Original post ID
+     * @param int $new_post_id New post ID
+     */
+    private function duplicate_featured_image($template_id, $new_post_id) {
+        $thumbnail_id = get_post_thumbnail_id($template_id);
+        
+        if (!$thumbnail_id) {
+            return;
+        }
+        
+        // Simply set the same featured image ID to the new post
+        set_post_thumbnail($new_post_id, $thumbnail_id);
+    }
+
+    /**
+     * Duplicate taxonomies from template to new post
+     *
+     * @param int $template_id Original post ID
+     * @param int $new_post_id New post ID
+     */
+    private function duplicate_taxonomies($template_id, $new_post_id) {
+        // Get all taxonomies for the post type
+        $taxonomies = get_object_taxonomies(get_post_type($template_id));
+        
+        foreach ($taxonomies as $taxonomy) {
+            // Get all terms for this taxonomy on the template post
+            $terms = wp_get_object_terms($template_id, $taxonomy, array('fields' => 'ids'));
+            
+            if (!is_wp_error($terms) && !empty($terms)) {
+                // Set the terms on the new post
+                wp_set_object_terms($new_post_id, $terms, $taxonomy);
+            }
+        }
+    }
+
+    /**
      * Duplicate Elementor data from template to new post
      *
      * @param int $template_id Original post ID
@@ -746,73 +949,5 @@ class PageDuplicatorProcess {
         }
 
         return $elementor_data;
-    }
-
-    /**
-     * Duplicate featured image from template to new post
-     *
-     * @param int $template_id Original post ID
-     * @param int $new_post_id New post ID
-     */
-    private function duplicate_featured_image($template_id, $new_post_id) {
-        $thumbnail_id = get_post_thumbnail_id($template_id);
-        
-        if (!$thumbnail_id) {
-            return;
-        }
-        
-        // Simply set the same featured image ID to the new post
-        set_post_thumbnail($new_post_id, $thumbnail_id);
-    }
-
-    /**
-     * Duplicate taxonomies from template to new post
-     *
-     * @param int $template_id Original post ID
-     * @param int $new_post_id New post ID
-     */
-    private function duplicate_taxonomies($template_id, $new_post_id) {
-        // Get all taxonomies for the post type
-        $taxonomies = get_object_taxonomies(get_post_type($template_id));
-        
-        foreach ($taxonomies as $taxonomy) {
-            // Get all terms for this taxonomy on the template post
-            $terms = wp_get_object_terms($template_id, $taxonomy, array('fields' => 'ids'));
-            
-            if (!is_wp_error($terms) && !empty($terms)) {
-                // Set the terms on the new post
-                wp_set_object_terms($new_post_id, $terms, $taxonomy);
-            }
-        }
-    }
-
-    /**
-     * Helper function to process Elementor data and replace locations
-     *
-     * @param array $elements Elementor elements array
-     * @param string $search_key Text to search for
-     * @param string $location New location value
-     * @return array Updated elements
-     */
-    private function process_elementor_elements($elements, $search_key, $location) {
-        foreach ($elements as &$element) {
-            // Process settings
-            if (!empty($element['settings'])) {
-                foreach ($element['settings'] as $setting_key => &$setting_value) {
-                    if (is_string($setting_value)) {
-                        $setting_value = $this->replace_location($setting_value, $search_key, $location);
-                    } elseif (is_array($setting_value)) {
-                        $setting_value = $this->replace_location_recursive($setting_value, $search_key, $location);
-                    }
-                }
-            }
-
-            // Process elements recursively
-            if (!empty($element['elements'])) {
-                $element['elements'] = $this->process_elementor_elements($element['elements'], $search_key, $location);
-            }
-        }
-
-        return $elements;
     }
 } 
